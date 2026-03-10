@@ -39,25 +39,37 @@ interface NewsItem {
 
 // Funcao para buscar dados do Yahoo Finance
 async function fetchYahooFinanceData(ticker: string): Promise<StockData> {
-  const formattedTicker = ticker.toUpperCase();
+  let formattedTicker = ticker.toUpperCase().trim();
+  
+  // Adicionar .SA para acoes brasileiras se nao tiver sufixo
+  if (/^[A-Z]{4}[0-9]{1,2}$/.test(formattedTicker) && !formattedTicker.includes('.')) {
+    formattedTicker = `${formattedTicker}.SA`;
+  }
   
   // Yahoo Finance API v8 - Quote endpoint
-  const quoteUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${formattedTicker}?interval=1d&range=3mo`;
+  const quoteUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(formattedTicker)}?interval=1d&range=3mo`;
+  
   const quoteResponse = await fetch(quoteUrl, {
     headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'application/json',
+      'Accept-Language': 'en-US,en;q=0.9',
     },
+    cache: 'no-store',
   });
   
   if (!quoteResponse.ok) {
+    const errorText = await quoteResponse.text().catch(() => '');
+    console.error('[v0] Yahoo Finance error:', quoteResponse.status, errorText);
     throw new Error(`Yahoo Finance API error: ${quoteResponse.status}`);
   }
   
   const quoteData = await quoteResponse.json();
   const chart = quoteData.chart?.result?.[0];
   
-  if (!chart) {
-    throw new Error('Ticker not found');
+  if (!chart || !chart.meta) {
+    const errorMsg = quoteData.chart?.error?.description || 'Ticker not found';
+    throw new Error(errorMsg);
   }
   
   const meta = chart.meta;
@@ -74,11 +86,14 @@ async function fetchYahooFinanceData(ticker: string): Promise<StockData> {
   const ma50 = calculateMA(closePrices, Math.min(50, closePrices.length));
   
   // Buscar dados fundamentalistas
-  const summaryUrl = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${formattedTicker}?modules=price,summaryDetail,defaultKeyStatistics,financialData`;
+  const summaryUrl = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(formattedTicker)}?modules=price,summaryDetail,defaultKeyStatistics,financialData`;
   const summaryResponse = await fetch(summaryUrl, {
     headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'application/json',
+      'Accept-Language': 'en-US,en;q=0.9',
     },
+    cache: 'no-store',
   });
   
   let fundamentals: {
@@ -135,29 +150,43 @@ async function fetchYahooFinanceData(ticker: string): Promise<StockData> {
 }
 
 // Funcao para buscar noticias em tempo real
-async function fetchFinanceNews(ticker: string): Promise<NewsItem[]> {
+async function fetchFinanceNews(ticker: string, companyName: string): Promise<NewsItem[]> {
   try {
-    const newsUrl = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(ticker)}&newsCount=10`;
-    const response = await fetch(newsUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      },
-    });
+    // Tentar buscar por ticker primeiro, depois por nome da empresa
+    const searchQueries = [ticker, companyName.split(' ')[0]];
     
-    if (!response.ok) {
-      return [];
+    for (const query of searchQueries) {
+      const newsUrl = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(query)}&newsCount=10`;
+      const response = await fetch(newsUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'application/json',
+        },
+        cache: 'no-store',
+      });
+      
+      if (!response.ok) {
+        continue;
+      }
+      
+      const data = await response.json();
+      const news = data.news || [];
+      
+      if (news.length > 0) {
+        return news.slice(0, 5).map((item: { title: string; publisher: string; link: string; providerPublishTime: number }) => ({
+          title: item.title || 'Sem titulo',
+          publisher: item.publisher || 'Fonte desconhecida',
+          link: item.link || '',
+          publishedAt: item.providerPublishTime 
+            ? new Date(item.providerPublishTime * 1000).toISOString() 
+            : new Date().toISOString(),
+        }));
+      }
     }
     
-    const data = await response.json();
-    const news = data.news || [];
-    
-    return news.slice(0, 5).map((item: { title: string; publisher: string; link: string; providerPublishTime: number }) => ({
-      title: item.title,
-      publisher: item.publisher,
-      link: item.link,
-      publishedAt: new Date(item.providerPublishTime * 1000).toISOString(),
-    }));
-  } catch {
+    return [];
+  } catch (error) {
+    console.error('[v0] News fetch error:', error);
     return [];
   }
 }
@@ -445,7 +474,7 @@ export async function POST(request: NextRequest) {
     const stockData = await fetchYahooFinanceData(ticker);
     
     // 2. Buscar noticias em tempo real
-    const news = await fetchFinanceNews(ticker);
+    const news = await fetchFinanceNews(ticker, stockData.company_name);
     
     // 3. Gerar analise com sistema de regras
     const analysis = generateAnalysis(stockData, news);
@@ -480,15 +509,24 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('[v0] Analysis error:', error);
     
-    if (error instanceof Error && error.message === 'Ticker not found') {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    
+    if (errorMessage.includes('not found') || errorMessage.includes('No data found')) {
       return NextResponse.json(
-        { detail: 'Ticker nao encontrado. Verifique se o simbolo esta correto (ex: AAPL, PETR4.SA).' },
+        { detail: `Ticker "${ticker}" nao encontrado. Para acoes brasileiras, use o sufixo .SA (ex: PETR4.SA). Para acoes americanas, use apenas o simbolo (ex: AAPL).` },
         { status: 404 }
       );
     }
     
+    if (errorMessage.includes('Yahoo Finance API error')) {
+      return NextResponse.json(
+        { detail: 'Servico temporariamente indisponivel. Tente novamente em alguns segundos.' },
+        { status: 503 }
+      );
+    }
+    
     return NextResponse.json(
-      { detail: 'Erro ao processar analise. Tente novamente.' },
+      { detail: 'Erro ao processar analise. Verifique o ticker e tente novamente.' },
       { status: 500 }
     );
   }
