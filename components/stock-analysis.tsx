@@ -42,7 +42,7 @@ export function StockAnalysis() {
       setData(null);
 
       try {
-        const result = await apiClient.analyzeStock(ticker);
+        const result = await apiClient.analyzeStock(ticker.toUpperCase().trim());
         setData(result);
       } catch (err) {
         const errorMessage =
@@ -130,8 +130,12 @@ export function StockAnalysis() {
                   type="text"
                   placeholder="Digite o ticker (ex: AAPL, PETR4.SA)"
                   value={ticker}
-                  onChange={(e) => setTicker(e.target.value)}
-                  className="pl-12 h-12 text-lg bg-background border-border/50 focus:border-[hsl(160_70%_42%)] focus:ring-[hsl(160_70%_42%/0.3)]"
+                  onChange={(e) => setTicker(e.target.value.toUpperCase())}
+                  autoCapitalize="characters"
+                  autoCorrect="off"
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="pl-12 h-12 text-lg bg-background border-border/50 focus:border-[hsl(160_70%_42%)] focus:ring-[hsl(160_70%_42%/0.3)] uppercase"
                   disabled={isLoading}
                 />
               </div>
