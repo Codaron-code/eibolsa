@@ -42,7 +42,9 @@ export interface TickersResponse {
   }>;
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+// Em produção com Docker, use o backend FastAPI
+// No ambiente v0/Vercel, usa a API Route local
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
 
 class APIClient {
   private baseUrl: string;
