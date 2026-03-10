@@ -106,10 +106,13 @@ export function StockAnalysis() {
     <div className="min-h-screen bg-background text-foreground">
       {/* Header Sticky com Blur */}
       <header className="sticky top-0 z-50 border-b border-border/50 backdrop-blur-md bg-background/80">
-        <div className="max-w-3xl mx-auto px-4 py-4">
-          <span className="text-xl font-bold font-[family-name:var(--font-space-grotesk)]">
-            eibolsa
-          </span>
+        <div className="px-6 py-4">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="w-5 h-5 text-foreground" strokeWidth={2.5} />
+            <span className="text-xl font-bold font-[family-name:var(--font-space-grotesk)]">
+              EiBolsa
+            </span>
+          </div>
         </div>
       </header>
 
@@ -358,9 +361,6 @@ export function StockAnalysis() {
               <h3 className="text-xl font-semibold font-[family-name:var(--font-space-grotesk)]">
                 Digite um ticker para começar
               </h3>
-              <p className="text-muted-foreground mt-2 text-sm max-w-sm mx-auto text-balance">
-                Dados em tempo real do Yahoo Finance com analise inteligente por IA
-              </p>
             </div>
           </div>
         )}
