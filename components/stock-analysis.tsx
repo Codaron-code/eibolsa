@@ -156,7 +156,7 @@ export function StockAnalysis() {
               </Button>
             </form>
             <p className="text-xs text-muted-foreground mt-3 text-center">
-              Exemplos: AAPL, GOOGL, MSFT, PETR4.SA, VALE3.SA
+              EUA: AAPL, GOOGL, MSFT, NVDA, TSLA | Brasil: PETR4.SA, VALE3.SA, ITUB4.SA
             </p>
           </div>
         </div>
@@ -196,9 +196,12 @@ export function StockAnalysis() {
                       {recStyles?.icon}
                       {data.recommendation}
                     </span>
-                    <span className="relative flex h-3 w-3">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[hsl(160_70%_42%)] opacity-75" />
-                      <span className="relative inline-flex rounded-full h-3 w-3 bg-[hsl(160_70%_42%)]" />
+                    <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium bg-[hsl(160_70%_42%/0.15)] text-[hsl(160_70%_38%)]">
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[hsl(160_70%_42%)] opacity-75" />
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-[hsl(160_70%_42%)]" />
+                      </span>
+                      Tempo real
                     </span>
                   </div>
                   <p className="text-muted-foreground">{data.company_name}</p>
@@ -360,8 +363,8 @@ export function StockAnalysis() {
               <h3 className="text-xl font-semibold font-[family-name:var(--font-space-grotesk)]">
                 Digite um ticker para começar
               </h3>
-              <p className="text-muted-foreground mt-2 text-sm">
-                Analise ações americanas e brasileiras com inteligência artificial
+              <p className="text-muted-foreground mt-2 text-sm max-w-sm mx-auto text-balance">
+                Dados em tempo real do Yahoo Finance com analise inteligente por IA
               </p>
             </div>
           </div>
