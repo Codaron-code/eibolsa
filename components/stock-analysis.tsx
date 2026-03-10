@@ -3,11 +3,28 @@
 import { useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { Card } from '@/components/ui/card';
-import { Spinner } from '@/components/ui/spinner';
-import { TrendingUp, TrendingDown, AlertCircle, Lightbulb, Target } from 'lucide-react';
+import { TrendingUp, TrendingDown, AlertTriangle, Lightbulb, Search, BarChart3, Newspaper } from 'lucide-react';
 import { apiClient, AnalysisResponse } from '@/lib/api-client';
+
+function SkeletonCard() {
+  return (
+    <div className="space-y-6">
+      <div className="rounded-xl border border-border/50 bg-card p-6">
+        <div className="animate-shimmer h-8 w-48 rounded-md mb-4" />
+        <div className="animate-shimmer h-6 w-32 rounded-md mb-2" />
+        <div className="animate-shimmer h-4 w-full rounded-md" />
+      </div>
+      <div className="grid grid-cols-5 gap-4">
+        {[...Array(5)].map((_, i) => (
+          <div key={i} className="rounded-xl border border-border/50 bg-secondary/50 p-4">
+            <div className="animate-shimmer h-3 w-16 rounded-md mx-auto mb-2" />
+            <div className="animate-shimmer h-5 w-20 rounded-md mx-auto" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function StockAnalysis() {
   const [ticker, setTicker] = useState('');
@@ -31,7 +48,6 @@ export function StockAnalysis() {
         const errorMessage =
           err instanceof Error ? err.message : 'Erro ao buscar análise';
         setError(errorMessage);
-        console.error('[v0] Erro na análise:', err);
       } finally {
         setIsLoading(false);
       }
@@ -39,260 +55,313 @@ export function StockAnalysis() {
     [ticker]
   );
 
-  const getRecommendationColor = (recommendation: string) => {
+  const getRecommendationStyles = (recommendation: string) => {
     switch (recommendation) {
       case 'COMPRAR':
-        return 'bg-green-500/20 text-green-400 border-green-500/30';
+        return {
+          border: 'border-l-[hsl(160_70%_42%)]',
+          bg: 'bg-[hsl(160_70%_42%/0.08)]',
+          badge: 'bg-[hsl(160_70%_42%)] text-white',
+          icon: <TrendingUp className="w-5 h-5" />,
+        };
       case 'VENDER':
-        return 'bg-red-500/20 text-red-400 border-red-500/30';
+        return {
+          border: 'border-l-[hsl(0_72%_51%)]',
+          bg: 'bg-[hsl(0_72%_51%/0.08)]',
+          badge: 'bg-[hsl(0_72%_51%)] text-white',
+          icon: <TrendingDown className="w-5 h-5" />,
+        };
       case 'ESPERAR':
-        return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
+        return {
+          border: 'border-l-[hsl(38_92%_50%)]',
+          bg: 'bg-[hsl(38_92%_50%/0.08)]',
+          badge: 'bg-[hsl(38_92%_50%)] text-white',
+          icon: <AlertTriangle className="w-5 h-5" />,
+        };
       default:
-        return '';
+        return {
+          border: 'border-l-border',
+          bg: 'bg-secondary/50',
+          badge: 'bg-secondary text-foreground',
+          icon: null,
+        };
     }
   };
 
-  const getSentimentColor = (sentiment: string) => {
+  const getSentimentStyles = (sentiment: string) => {
     switch (sentiment) {
       case 'positivo':
-        return 'bg-green-500/10 text-green-300';
+        return 'bg-[hsl(160_70%_42%/0.1)] text-[hsl(160_70%_38%)]';
       case 'negativo':
-        return 'bg-red-500/10 text-red-300';
+        return 'bg-[hsl(0_72%_51%/0.1)] text-[hsl(0_72%_45%)]';
       case 'neutro':
       default:
-        return 'bg-gray-500/10 text-gray-300';
+        return 'bg-secondary text-muted-foreground';
     }
   };
+
+  const recStyles = data ? getRecommendationStyles(data.recommendation) : null;
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      {/* Header com glassmorphism */}
-      <header className="sticky top-0 z-50 border-b border-border/50 backdrop-blur-xl bg-background/80">
-        <div className="max-w-7xl mx-auto px-4 py-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-green-400 bg-clip-text text-transparent">
-                EiBolsa
-              </h1>
-              <p className="text-sm text-muted-foreground mt-1">
-                Análise inteligente de ações com IA
-              </p>
+      {/* Header Sticky com Blur */}
+      <header className="sticky top-0 z-50 border-b border-border/50 backdrop-blur-md bg-background/80">
+        <div className="max-w-3xl mx-auto px-4 py-4">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-[hsl(160_70%_42%)] flex items-center justify-center">
+              <BarChart3 className="w-5 h-5 text-white" />
             </div>
+            <span className="text-xl font-bold font-[family-name:var(--font-space-grotesk)]">
+              EiBolsa
+            </span>
           </div>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 py-12">
-        {/* Search Section */}
-        <div className="mb-12">
-          <div className="backdrop-blur-xl bg-card/40 border border-border/50 rounded-2xl p-8 shadow-2xl">
-            <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-3">
-              <Input
-                type="text"
-                placeholder="Digite o ticker (ex: AAPL, MSFT, TSLA)"
-                value={ticker}
-                onChange={(e) => setTicker(e.target.value)}
-                className="flex-1 bg-background/50 border-border/50 h-12"
-                disabled={isLoading}
-              />
+      <main className="max-w-2xl mx-auto px-4 py-12">
+        {/* Search Hero Section */}
+        <div className="mb-12 animate-fade-up">
+          <div 
+            className="rounded-2xl border border-border/50 bg-card/60 backdrop-blur-xl p-6 glow-green"
+          >
+            <form onSubmit={handleSubmit} className="flex gap-3">
+              <div className="relative flex-1">
+                <BarChart3 className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
+                <Input
+                  type="text"
+                  placeholder="Digite o ticker (ex: AAPL, PETR4.SA)"
+                  value={ticker}
+                  onChange={(e) => setTicker(e.target.value)}
+                  className="pl-12 h-12 text-lg bg-background border-border/50 focus:border-[hsl(160_70%_42%)] focus:ring-[hsl(160_70%_42%/0.3)]"
+                  disabled={isLoading}
+                />
+              </div>
               <Button
                 type="submit"
                 disabled={isLoading || !ticker.trim()}
-                className="h-12 px-8 bg-blue-600 hover:bg-blue-700 text-white"
+                className="h-12 px-6 bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl font-medium"
               >
                 {isLoading ? (
                   <div className="flex items-center gap-2">
-                    <Spinner className="w-4 h-4" />
-                    <span>Analisando...</span>
+                    <div className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin" />
+                    <span>Analisando</span>
                   </div>
                 ) : (
-                  'Analisar'
+                  <div className="flex items-center gap-2">
+                    <Search className="w-4 h-4" />
+                    <span>Analisar</span>
+                  </div>
                 )}
               </Button>
             </form>
+            <p className="text-xs text-muted-foreground mt-3 text-center">
+              Exemplos: AAPL, GOOGL, MSFT, PETR4.SA, VALE3.SA
+            </p>
           </div>
         </div>
 
         {/* Error Message */}
         {error && (
-          <div className="mb-8 p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-300 flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
-            <div>
-              <p className="font-semibold">Erro ao buscar análise</p>
-              <p className="text-sm mt-1">Verifique se o ticker é válido ou tente novamente.</p>
+          <div className="mb-8 p-4 rounded-xl border border-[hsl(0_72%_51%/0.3)] bg-[hsl(0_72%_51%/0.05)] text-[hsl(0_72%_45%)] animate-fade-up">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="font-semibold">Erro ao buscar análise</p>
+                <p className="text-sm mt-1 opacity-80">Verifique se o ticker é válido ou tente novamente.</p>
+              </div>
             </div>
           </div>
         )}
 
-        {/* Results Section */}
-        {(data || isLoading) && (
-          <div className="space-y-6">
-            {/* Main Card with Price and Recommendation */}
-            <div className="backdrop-blur-xl bg-card/40 border border-border/50 rounded-2xl p-8 shadow-2xl">
-              {isLoading ? (
-                <div className="flex flex-col items-center justify-center py-12">
-                  <Spinner className="w-12 h-12 text-blue-400" />
-                  <p className="mt-4 text-muted-foreground">Analisando dados financeiros...</p>
-                </div>
-              ) : data ? (
-                <div className="space-y-6">
-                  <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6">
-                    <div>
-                      <h2 className="text-4xl font-bold">{data.company_name}</h2>
-                      <p className="text-2xl font-semibold text-blue-400 mt-2">
-                        {data.current_price}
-                        <span
-                          className={`ml-3 text-lg font-medium ${
-                            data.price_change_percent.startsWith('+')
-                              ? 'text-green-400'
-                              : 'text-red-400'
-                          }`}
-                        >
-                          {data.price_change_percent}
-                        </span>
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <Badge
-                        className={`text-lg px-6 py-2 border ${getRecommendationColor(
-                          data.recommendation
-                        )}`}
-                      >
-                        {data.recommendation}
-                      </Badge>
-                      <div className="text-center backdrop-blur-md bg-background/60 rounded-lg p-3">
-                        <p className="text-sm text-muted-foreground">Confiança</p>
-                        <p className="text-2xl font-bold text-blue-400">{data.confidence}%</p>
-                      </div>
-                    </div>
-                  </div>
+        {/* Loading State */}
+        {isLoading && <SkeletonCard />}
 
-                  {/* Reasoning Card */}
-                  <div className="backdrop-blur-md bg-background/40 rounded-xl p-4 border border-border/30">
-                    <p className="text-muted-foreground text-sm">
-                      <span className="text-blue-400 font-semibold">Análise:</span> {data.reasoning}
-                    </p>
+        {/* Results Section */}
+        {data && !isLoading && (
+          <div className="space-y-6 max-w-3xl mx-auto">
+            {/* Main Recommendation Card */}
+            <div 
+              className={`rounded-xl border border-border/50 border-l-4 ${recStyles?.border} ${recStyles?.bg} p-6 animate-fade-up`}
+            >
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-3 mb-2">
+                    <h2 className="text-2xl font-bold font-[family-name:var(--font-space-grotesk)]">
+                      {data.ticker}
+                    </h2>
+                    <span 
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-bold ${recStyles?.badge}`}
+                    >
+                      {recStyles?.icon}
+                      {data.recommendation}
+                    </span>
+                    <span className="relative flex h-3 w-3">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[hsl(160_70%_42%)] opacity-75" />
+                      <span className="relative inline-flex rounded-full h-3 w-3 bg-[hsl(160_70%_42%)]" />
+                    </span>
                   </div>
+                  <p className="text-muted-foreground">{data.company_name}</p>
                 </div>
-              ) : null}
+                <div className="text-right">
+                  <p className="text-2xl font-bold font-[family-name:var(--font-space-grotesk)]">
+                    {data.current_price}
+                  </p>
+                  <p 
+                    className={`text-sm font-medium ${
+                      data.price_change_percent.startsWith('+') || data.price_change_percent.startsWith('-') === false
+                        ? data.price_change_percent.includes('-') 
+                          ? 'text-[hsl(0_72%_51%)]' 
+                          : 'text-[hsl(160_70%_42%)]'
+                        : data.price_change_percent.startsWith('-')
+                          ? 'text-[hsl(0_72%_51%)]'
+                          : 'text-[hsl(160_70%_42%)]'
+                    }`}
+                  >
+                    {data.price_change_percent}
+                  </p>
+                </div>
+              </div>
+              
+              {/* Confidence Bar */}
+              <div className="mt-4">
+                <div className="flex items-center justify-between text-xs uppercase tracking-wider text-muted-foreground mb-1">
+                  <span>Confiança</span>
+                  <span className="font-bold text-foreground">{data.confidence}%</span>
+                </div>
+                <div className="h-2 bg-secondary rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-[hsl(160_70%_42%)] rounded-full transition-all duration-500"
+                    style={{ width: `${data.confidence}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Analysis Card */}
+            <div className="rounded-xl border border-border/50 bg-card p-6 animate-fade-up animation-delay-100">
+              <div className="flex items-center gap-2 mb-3">
+                <BarChart3 className="w-5 h-5 text-[hsl(160_70%_42%)]" />
+                <h3 className="text-xs uppercase tracking-wider font-semibold text-muted-foreground">
+                  Análise Detalhada
+                </h3>
+              </div>
+              <p className="text-foreground leading-relaxed">
+                {data.reasoning}
+              </p>
             </div>
 
             {/* Key Metrics Grid */}
-            {data && (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-                {[
-                  { label: 'P/L', value: data.key_metrics.pe_ratio },
-                  { label: 'Div. Yield', value: data.key_metrics.dividend_yield },
-                  { label: 'Market Cap', value: data.key_metrics.market_cap },
-                  { label: '52W Alta', value: data.key_metrics.week_52_high },
-                  { label: '52W Baixa', value: data.key_metrics.week_52_low },
-                  { label: 'RSI', value: data.key_metrics.rsi },
-                  { label: 'MA20', value: data.key_metrics.ma_20 },
-                  { label: 'MA50', value: data.key_metrics.ma_50 },
-                  { label: 'Volume', value: data.key_metrics.avg_volume },
-                ].map((metric) => (
-                  <div
-                    key={metric.label}
-                    className="backdrop-blur-md bg-card/40 border border-border/50 rounded-xl p-4 text-center"
-                  >
-                    <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                      {metric.label}
-                    </p>
-                    <p className="text-lg font-bold text-blue-400 mt-1">{metric.value}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Risks and Opportunities */}
-            {data && (
-              <div className="grid md:grid-cols-2 gap-6">
-                {/* Risks */}
-                <div className="backdrop-blur-xl bg-card/40 border border-border/50 rounded-2xl p-6 shadow-2xl">
-                  <div className="flex items-center gap-2 mb-4">
-                    <AlertCircle className="w-5 h-5 text-red-400" />
-                    <h3 className="text-xl font-bold">Riscos</h3>
-                  </div>
-                  <ul className="space-y-2">
-                    {data.risks.map((risk, idx) => (
-                      <li
-                        key={idx}
-                        className="flex gap-2 p-2 rounded-lg bg-red-500/5 border border-red-500/20 text-sm text-red-300"
-                      >
-                        <span className="text-red-400 font-bold">•</span>
-                        <span>{risk}</span>
-                      </li>
-                    ))}
-                  </ul>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 animate-fade-up animation-delay-200">
+              {[
+                { label: 'Market Cap', value: data.key_metrics.market_cap },
+                { label: 'P/L', value: data.key_metrics.pe_ratio },
+                { label: 'Div. Yield', value: data.key_metrics.dividend_yield },
+                { label: 'Máx. 52s', value: data.key_metrics.week_52_high },
+                { label: 'Mín. 52s', value: data.key_metrics.week_52_low },
+              ].map((metric) => (
+                <div
+                  key={metric.label}
+                  className="rounded-xl bg-secondary/50 p-4 text-center"
+                >
+                  <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">
+                    {metric.label}
+                  </p>
+                  <p className="text-lg font-bold font-[family-name:var(--font-space-grotesk)]">
+                    {metric.value}
+                  </p>
                 </div>
+              ))}
+            </div>
 
-                {/* Opportunities */}
-                <div className="backdrop-blur-xl bg-card/40 border border-border/50 rounded-2xl p-6 shadow-2xl">
-                  <div className="flex items-center gap-2 mb-4">
-                    <Lightbulb className="w-5 h-5 text-yellow-400" />
-                    <h3 className="text-xl font-bold">Oportunidades</h3>
-                  </div>
-                  <ul className="space-y-2">
-                    {data.opportunities.map((opp, idx) => (
-                      <li
-                        key={idx}
-                        className="flex gap-2 p-2 rounded-lg bg-green-500/5 border border-green-500/20 text-sm text-green-300"
-                      >
-                        <span className="text-green-400 font-bold">•</span>
-                        <span>{opp}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            )}
-
-            {/* News Summary */}
-            {data && data.news_summary.length > 0 && (
-              <div className="backdrop-blur-xl bg-card/40 border border-border/50 rounded-2xl p-6 shadow-2xl">
+            {/* Risks and Opportunities Grid */}
+            <div className="grid sm:grid-cols-2 gap-4 animate-fade-up animation-delay-300">
+              {/* Risks */}
+              <div className="rounded-xl border border-border/50 bg-card p-5">
                 <div className="flex items-center gap-2 mb-4">
-                  <Target className="w-5 h-5 text-blue-400" />
-                  <h3 className="text-xl font-bold">Resumo de Notícias</h3>
+                  <AlertTriangle className="w-5 h-5 text-[hsl(0_72%_51%)]" />
+                  <h3 className="text-xs uppercase tracking-wider font-semibold text-muted-foreground">
+                    Riscos
+                  </h3>
+                </div>
+                <ul className="space-y-2">
+                  {data.risks.map((risk, idx) => (
+                    <li key={idx} className="flex items-start gap-2 text-sm">
+                      <span className="text-[hsl(0_72%_51%)] mt-1.5 text-xs">&#9679;</span>
+                      <span>{risk}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Opportunities */}
+              <div className="rounded-xl border border-border/50 bg-card p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <Lightbulb className="w-5 h-5 text-[hsl(160_70%_42%)]" />
+                  <h3 className="text-xs uppercase tracking-wider font-semibold text-muted-foreground">
+                    Oportunidades
+                  </h3>
+                </div>
+                <ul className="space-y-2">
+                  {data.opportunities.map((opp, idx) => (
+                    <li key={idx} className="flex items-start gap-2 text-sm">
+                      <span className="text-[hsl(160_70%_42%)] mt-1.5 text-xs">&#9679;</span>
+                      <span>{opp}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            {/* News Card */}
+            {data.news_summary.length > 0 && (
+              <div className="rounded-xl border border-border/50 bg-card p-5 animate-fade-up animation-delay-400">
+                <div className="flex items-center gap-2 mb-4">
+                  <Newspaper className="w-5 h-5 text-muted-foreground" />
+                  <h3 className="text-xs uppercase tracking-wider font-semibold text-muted-foreground">
+                    Notícias Recentes
+                  </h3>
                 </div>
                 <div className="space-y-3">
                   {data.news_summary.map((news, idx) => (
-                    <div key={idx} className="border border-border/30 rounded-lg p-4 bg-background/30">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex-1">
-                          <h4 className="font-semibold text-foreground">{news.title}</h4>
-                          <p className="text-sm text-muted-foreground mt-1">{news.summary}</p>
-                        </div>
-                        <Badge className={`flex-shrink-0 ${getSentimentColor(news.sentiment)}`}>
-                          {news.sentiment.charAt(0).toUpperCase() + news.sentiment.slice(1)}
-                        </Badge>
+                    <div key={idx} className="flex items-start justify-between gap-3 pb-3 border-b border-border/50 last:border-0 last:pb-0">
+                      <div className="flex-1">
+                        <h4 className="font-medium text-sm">{news.title}</h4>
+                        <p className="text-xs text-muted-foreground mt-1">{news.summary}</p>
                       </div>
+                      <span 
+                        className={`flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-medium ${getSentimentStyles(news.sentiment)}`}
+                      >
+                        {news.sentiment.charAt(0).toUpperCase() + news.sentiment.slice(1)}
+                      </span>
                     </div>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* Footer with Timestamp */}
-            {data && (
-              <div className="text-center text-xs text-muted-foreground">
-                <p>
-                  Análise realizada em{' '}
-                  {new Date(data.analysis_date).toLocaleString('pt-BR')}
-                </p>
-              </div>
-            )}
+            {/* Timestamp Footer */}
+            <div className="text-center text-xs text-muted-foreground animate-fade-up animation-delay-500">
+              <p>
+                Análise realizada em{' '}
+                {new Date(data.analysis_date).toLocaleString('pt-BR')}
+              </p>
+            </div>
           </div>
         )}
 
         {/* Empty State */}
         {!data && !isLoading && !error && (
-          <div className="text-center py-12">
-            <div className="backdrop-blur-xl bg-card/40 border border-border/50 rounded-2xl p-12 shadow-2xl">
-              <Target className="w-16 h-16 mx-auto text-muted-foreground mb-4" />
-              <h3 className="text-xl font-semibold">Digite um ticker para começar</h3>
-              <p className="text-muted-foreground mt-2">
-                Exemplos: AAPL, MSFT, TSLA, GOOGL, AMZN
+          <div className="text-center py-12 animate-fade-up">
+            <div className="rounded-xl border border-border/50 bg-card p-12">
+              <div className="w-16 h-16 mx-auto rounded-2xl bg-secondary flex items-center justify-center mb-4">
+                <BarChart3 className="w-8 h-8 text-muted-foreground" />
+              </div>
+              <h3 className="text-xl font-semibold font-[family-name:var(--font-space-grotesk)]">
+                Digite um ticker para começar
+              </h3>
+              <p className="text-muted-foreground mt-2 text-sm">
+                Analise ações americanas e brasileiras com inteligência artificial
               </p>
             </div>
           </div>
