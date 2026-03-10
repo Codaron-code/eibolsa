@@ -107,14 +107,9 @@ export function StockAnalysis() {
       {/* Header Sticky com Blur */}
       <header className="sticky top-0 z-50 border-b border-border/50 backdrop-blur-md bg-background/80">
         <div className="max-w-3xl mx-auto px-4 py-4">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-[hsl(160_70%_42%)] flex items-center justify-center">
-              <BarChart3 className="w-5 h-5 text-white" />
-            </div>
-            <span className="text-xl font-bold font-[family-name:var(--font-space-grotesk)]">
-              EiBolsa
-            </span>
-          </div>
+          <span className="text-xl font-bold font-[family-name:var(--font-space-grotesk)]">
+            eibolsa
+          </span>
         </div>
       </header>
 
