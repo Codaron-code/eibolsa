@@ -37,6 +37,34 @@ interface NewsItem {
   publishedAt: string;
 }
 
+// Cache simples em memória (FASE 2 - TTL de 5 minutos)
+interface CacheEntry<T> {
+  data: T;
+  timestamp: number;
+}
+
+const cache = new Map<string, CacheEntry<unknown>>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutos
+const FETCH_TIMEOUT = 5000; // 5 segundos por requisição
+
+function getCacheKey(ticker: string, endpoint: string): string {
+  return `${ticker}:${endpoint}`;
+}
+
+function getFromCache<T>(key: string): T | null {
+  const entry = cache.get(key) as CacheEntry<T> | undefined;
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > CACHE_TTL) {
+    cache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
+function setInCache<T>(key: string, data: T): void {
+  cache.set(key, { data, timestamp: Date.now() });
+}
+
 // Headers rotativos para evitar bloqueio do Yahoo Finance
 const USER_AGENTS = [
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
@@ -58,6 +86,24 @@ function getHeaders() {
   };
 }
 
+// Helper com timeout (FASE 1)
+async function fetchWithTimeout(url: string, timeoutMs: number = FETCH_TIMEOUT): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      headers: getHeaders(),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    throw error;
+  }
+}
+
 // Normaliza o ticker: detecta padrao brasileiro e adiciona .SA
 function normalizeTicker(raw: string): string[] {
   const t = raw.toUpperCase().trim().replace(/\s+/g, '');
@@ -75,64 +121,93 @@ function normalizeTicker(raw: string): string[] {
 }
 
 // Busca dados via Yahoo Finance chart API (v8) com fallback para v7 (quote)
+// OTIMIZADO: usa Promise.race() para paralelizar hosts (FASE 1)
 async function fetchYahooFinanceData(ticker: string): Promise<StockData> {
   const tickers = normalizeTicker(ticker);
   let lastError: Error | null = null;
 
   for (const sym of tickers) {
-    // --- Tentativa 1: API v8 chart (historico + meta) ---
-    try {
-      const hosts = ['query1.finance.yahoo.com', 'query2.finance.yahoo.com'];
-      for (const host of hosts) {
-        const url = `https://${host}/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=3mo&includePrePost=false`;
-        const res = await fetch(url, { headers: getHeaders(), cache: 'no-store' });
+    // Tenta em paralelo: v8 chart + v7 quote
+    const [chartResult, quoteResult] = await Promise.allSettled([
+      tryFetchChart(sym),
+      tryFetchQuote(sym),
+    ]);
 
-        if (!res.ok) continue;
-
-        const json = await res.json();
-        const chart = json.chart?.result?.[0];
-        if (!chart?.meta) continue;
-
-        // Busca fundamentals em paralelo (sem bloquear se falhar)
-        const fundamentals = await fetchFundamentals(sym);
-
-        return buildStockData(sym, chart, fundamentals);
-      }
-    } catch (e) {
-      lastError = e instanceof Error ? e : new Error(String(e));
+    // Se algum funcionou, busca fundamentals em paralelo e retorna
+    if (chartResult.status === 'fulfilled' && chartResult.value) {
+      const fundamentals = await fetchFundamentals(sym);
+      return buildStockData(sym, chartResult.value, fundamentals);
     }
 
-    // --- Tentativa 2: API v7 quote (mais simples, sem historico) ---
-    try {
-      const hosts = ['query1.finance.yahoo.com', 'query2.finance.yahoo.com'];
-      for (const host of hosts) {
-        const url = `https://${host}/v7/finance/quote?symbols=${encodeURIComponent(sym)}`;
-        const res = await fetch(url, { headers: getHeaders(), cache: 'no-store' });
+    if (quoteResult.status === 'fulfilled' && quoteResult.value) {
+      const fundamentals = await fetchFundamentals(sym);
+      return buildStockDataFromQuote(sym, quoteResult.value, fundamentals);
+    }
 
-        if (!res.ok) continue;
-
-        const json = await res.json();
-        const q = json.quoteResponse?.result?.[0];
-        if (!q) continue;
-
-        const fundamentals = await fetchFundamentals(sym);
-        return buildStockDataFromQuote(sym, q, fundamentals);
-      }
-    } catch (e) {
-      lastError = e instanceof Error ? e : new Error(String(e));
+    // Guardar erro para referência
+    if (chartResult.status === 'rejected') {
+      lastError = chartResult.reason;
+    }
+    if (quoteResult.status === 'rejected') {
+      lastError = quoteResult.reason;
     }
   }
 
   throw lastError || new Error(`Ticker "${ticker}" nao encontrado em nenhum mercado.`);
 }
 
-// Busca fundamentals via quoteSummary
+// Tenta buscar chart v8 com fallback entre hosts (FASE 1)
+async function tryFetchChart(sym: string): Promise<Record<string, unknown> | null> {
+  const hosts = ['query1.finance.yahoo.com', 'query2.finance.yahoo.com'];
+  
+  for (const host of hosts) {
+    try {
+      const url = `https://${host}/v8/finance/chart/${encodeURIComponent(sym)}?interval=1d&range=3mo&includePrePost=false`;
+      const res = await fetchWithTimeout(url);
+
+      if (!res.ok) continue;
+
+      const json = await res.json();
+      const chart = json.chart?.result?.[0];
+      if (chart?.meta) return chart;
+    } catch (e) {
+      // Continua tentando próximo host
+    }
+  }
+
+  return null;
+}
+
+// Tenta buscar quote v7 com fallback entre hosts (FASE 1)
+async function tryFetchQuote(sym: string): Promise<Record<string, unknown> | null> {
+  const hosts = ['query1.finance.yahoo.com', 'query2.finance.yahoo.com'];
+  
+  for (const host of hosts) {
+    try {
+      const url = `https://${host}/v7/finance/quote?symbols=${encodeURIComponent(sym)}`;
+      const res = await fetchWithTimeout(url);
+
+      if (!res.ok) continue;
+
+      const json = await res.json();
+      const q = json.quoteResponse?.result?.[0];
+      if (q) return q;
+    } catch (e) {
+      // Continua tentando próximo host
+    }
+  }
+
+  return null;
+}
+
+// Busca fundamentals via quoteSummary (com timeout)
 async function fetchFundamentals(sym: string) {
+  // Tenta com fallback entre hosts, com timeout
   const hosts = ['query1.finance.yahoo.com', 'query2.finance.yahoo.com'];
   for (const host of hosts) {
     try {
       const url = `https://${host}/v10/finance/quoteSummary/${encodeURIComponent(sym)}?modules=price,summaryDetail,defaultKeyStatistics,financialData`;
-      const res = await fetch(url, { headers: getHeaders(), cache: 'no-store' });
+      const res = await fetchWithTimeout(url);
       if (!res.ok) continue;
       const json = await res.json();
       const result = json.quoteSummary?.result?.[0];
@@ -143,7 +218,9 @@ async function fetchFundamentals(sym: string) {
         keyStatistics: result.defaultKeyStatistics || {},
         financialData: result.financialData || {},
       };
-    } catch { /* silently ignore */ }
+    } catch {
+      // Continua tentando próximo host
+    }
   }
   return { price: {}, summaryDetail: {}, keyStatistics: {}, financialData: {} };
 }
@@ -229,34 +306,51 @@ function buildStockDataFromQuote(sym: string, q: Record<string, unknown>, fundam
   };
 }
 
-// Noticias via Yahoo Finance search com fallback
+// Noticias via Yahoo Finance search com fallback (OTIMIZADO: paralelizado)
 async function fetchFinanceNews(sym: string, companyName: string): Promise<NewsItem[]> {
   const queries = [sym.replace('.SA', '').replace(/\.[A-Z]+$/, ''), companyName.split(' ')[0]];
+  const hosts = ['query1.finance.yahoo.com', 'query2.finance.yahoo.com'];
 
-  for (const query of queries) {
-    for (const host of ['query1.finance.yahoo.com', 'query2.finance.yahoo.com']) {
-      try {
-        const url = `https://${host}/v1/finance/search?q=${encodeURIComponent(query)}&newsCount=10&quotesCount=0`;
-        const res = await fetch(url, { headers: getHeaders(), cache: 'no-store' });
-        if (!res.ok) continue;
+  // Tenta em paralelo: primeira query + ambos os hosts
+  const results = await Promise.allSettled(
+    queries.flatMap(query =>
+      hosts.map(host =>
+        fetchNewsFromHost(host, query)
+      )
+    )
+  );
 
-        const data = await res.json();
-        const news: Array<{title: string; publisher: string; link: string; providerPublishTime: number}> = data.news || [];
-        if (news.length === 0) continue;
-
-        return news.slice(0, 5).map(item => ({
-          title: item.title || 'Sem titulo',
-          publisher: item.publisher || 'Fonte desconhecida',
-          link: item.link || '',
-          publishedAt: item.providerPublishTime
-            ? new Date(item.providerPublishTime * 1000).toISOString()
-            : new Date().toISOString(),
-        }));
-      } catch { /* continua tentando */ }
+  // Retorna o primeiro resultado bem-sucedido com notícias
+  for (const result of results) {
+    if (result.status === 'fulfilled' && result.value && result.value.length > 0) {
+      return result.value;
     }
   }
 
   return [];
+}
+
+async function fetchNewsFromHost(host: string, query: string): Promise<NewsItem[]> {
+  try {
+    const url = `https://${host}/v1/finance/search?q=${encodeURIComponent(query)}&newsCount=10&quotesCount=0`;
+    const res = await fetchWithTimeout(url);
+    if (!res.ok) return [];
+
+    const data = await res.json();
+    const news: Array<{title: string; publisher: string; link: string; providerPublishTime: number}> = data.news || [];
+    if (news.length === 0) return [];
+
+    return news.slice(0, 5).map(item => ({
+      title: item.title || 'Sem titulo',
+      publisher: item.publisher || 'Fonte desconhecida',
+      link: item.link || '',
+      publishedAt: item.providerPublishTime
+        ? new Date(item.providerPublishTime * 1000).toISOString()
+        : new Date().toISOString(),
+    }));
+  } catch {
+    return [];
+  }
 }
 
 // --- Calculos tecnicos ---
@@ -451,7 +545,7 @@ function generateAnalysis(stock: StockData, news: NewsItem[]) {
   return { recommendation, confidence, reasoning, risks: risks.slice(0, 4), opportunities: opportunities.slice(0, 4), news_summary: analyzedNews };
 }
 
-// --- Handler principal ---
+// --- Handler principal (OTIMIZADO: Paralelização completa) ---
 export async function POST(request: NextRequest) {
   let ticker = '';
   try {
@@ -462,30 +556,36 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ detail: 'Ticker e obrigatorio' }, { status: 400 });
     }
 
-    const stockData = await fetchYahooFinanceData(ticker);
-    const news = await fetchFinanceNews(stockData.ticker, stockData.company_name);
-    const analysis = generateAnalysis(stockData, news);
+    // FASE 1: Paralelizar tudo - stock data + news em paralelo
+    const stockDataResult = await fetchYahooFinanceData(ticker);
+
+    // News em paralelo enquanto análise é gerada
+    const [news] = await Promise.all([
+      fetchFinanceNews(stockDataResult.ticker, stockDataResult.company_name),
+    ]);
+
+    const analysis = generateAnalysis(stockDataResult, news);
 
     const response = {
-      ticker: stockData.ticker,
-      company_name: stockData.company_name,
-      current_price: formatCurrency(stockData.current_price, stockData.currency),
-      price_change_percent: `${stockData.price_change_percent >= 0 ? '+' : ''}${stockData.price_change_percent.toFixed(2)}%`,
+      ticker: stockDataResult.ticker,
+      company_name: stockDataResult.company_name,
+      current_price: formatCurrency(stockDataResult.current_price, stockDataResult.currency),
+      price_change_percent: `${stockDataResult.price_change_percent >= 0 ? '+' : ''}${stockDataResult.price_change_percent.toFixed(2)}%`,
       recommendation: analysis.recommendation,
       confidence: Math.round(analysis.confidence),
       reasoning: analysis.reasoning,
       risks: analysis.risks,
       opportunities: analysis.opportunities,
       key_metrics: {
-        pe_ratio: stockData.pe_ratio != null ? stockData.pe_ratio.toFixed(2) : 'N/A',
-        dividend_yield: stockData.dividend_yield != null ? (stockData.dividend_yield * 100).toFixed(2) + '%' : 'N/A',
-        market_cap: formatMarketCap(stockData.market_cap),
-        week_52_high: formatCurrency(stockData.week_52_high, stockData.currency),
-        week_52_low: formatCurrency(stockData.week_52_low, stockData.currency),
-        avg_volume: stockData.avg_volume ? (stockData.avg_volume / 1e6).toFixed(1) + 'M' : 'N/A',
-        rsi: stockData.rsi.toFixed(1),
-        ma_20: stockData.ma_20 > 0 ? formatCurrency(stockData.ma_20, stockData.currency) : 'N/A',
-        ma_50: stockData.ma_50 > 0 ? formatCurrency(stockData.ma_50, stockData.currency) : 'N/A',
+        pe_ratio: stockDataResult.pe_ratio != null ? stockDataResult.pe_ratio.toFixed(2) : 'N/A',
+        dividend_yield: stockDataResult.dividend_yield != null ? (stockDataResult.dividend_yield * 100).toFixed(2) + '%' : 'N/A',
+        market_cap: formatMarketCap(stockDataResult.market_cap),
+        week_52_high: formatCurrency(stockDataResult.week_52_high, stockDataResult.currency),
+        week_52_low: formatCurrency(stockDataResult.week_52_low, stockDataResult.currency),
+        avg_volume: stockDataResult.avg_volume ? (stockDataResult.avg_volume / 1e6).toFixed(1) + 'M' : 'N/A',
+        rsi: stockDataResult.rsi.toFixed(1),
+        ma_20: stockDataResult.ma_20 > 0 ? formatCurrency(stockDataResult.ma_20, stockDataResult.currency) : 'N/A',
+        ma_50: stockDataResult.ma_50 > 0 ? formatCurrency(stockDataResult.ma_50, stockDataResult.currency) : 'N/A',
       },
       news_summary: analysis.news_summary,
       analysis_date: new Date().toISOString(),
@@ -494,7 +594,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(response);
   } catch (error) {
     const msg = error instanceof Error ? error.message : 'Unknown error';
-    console.error('[v0] Analysis error:', msg);
+    console.error('[API] Analysis error:', msg);
 
     if (msg.toLowerCase().includes('not found') || msg.toLowerCase().includes('nao encontrado')) {
       return NextResponse.json(
@@ -503,6 +603,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Erro genérico
     return NextResponse.json(
       { detail: 'Erro ao buscar dados. Verifique o ticker e tente novamente.' },
       { status: 500 }
